@@ -81,6 +81,20 @@ Durante la registrazione la riga di stato mostra la traccia corrente e il silenz
 
 Combinabile con `--duration` (si ferma da solo dopo N secondi, salvando anche l'ultima traccia parziale).
 
+### Silenziare i suoni di sistema di Windows (`--mute-system`)
+
+```bash
+python pausarec.py --silence 5 --mute-system
+```
+
+Notifica di Teams, "ding" di scaricamento, beep del collegamento USB, suoni di errore: finiscono nel loopback e si ritagliano una traccia tutta loro o si infilano a metà del brano. Con `--mute-system` PausaREC per il tempo della registrazione:
+
+1. Disattiva gli eventi sonori di Windows (come quando si sceglie *"Nessun suono"* nelle impostazioni sonore), salvando i valori originali
+2. Registra con la nostra struttura di tracce pulita
+3. Al momento dello STOP ripristina **tutti** i suoni originali, uno per uno, senza lasciare traccia
+
+Funziona su entrambe le modalità (singolo file e tracce). Solo Windows (tutto si gioca in `HKCU`, senza bisogno di permessi di amministratore), e se qualcosa va storto l'operazione semplicemente non viene fatta, senza bloccare la registrazione.
+
 ### Elencare le sorgenti audio disponibili
 
 ```bash
@@ -110,6 +124,7 @@ Sorgenti audio (loopback) disponibili:
 | `--silence SEC` | Modalità a tracce: dopo N secondi di silenzio chiude l'MP3 corrente e ne apre uno nuovo (`traccia 1.mp3`, `traccia 2.mp3`, ...), tutti salvati in una cartella | (disattivata) |
 | `--threshold AMP` | Soglia RMS di silenzio in modalità `--silence`, da `0.0` a `1.0` (0.005 ≈ -46 dB) | `0.005` |
 | `-d, --output-dir CARTELLA` | Cartella delle tracce in modalità `--silence` | `pausarec_<data>` |
+| `--mute-system` | Disattiva i suoni di sistema di Windows (notifiche, beep USB, UAC, ecc.) durante la registrazione, ripristinandoli allo stop | (disattivata) |
 | `--list` | Elenca le sorgenti audio disponibili ed esce | — |
 | `-h, --help` | Aiuto con tutte le opzioni | — |
 

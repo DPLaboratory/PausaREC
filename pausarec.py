@@ -18,6 +18,7 @@ Ferma la registrazione con Ctrl+C.
 """
 
 import argparse
+import contextlib
 import datetime
 import os
 import re
@@ -148,6 +149,71 @@ def save_track(mp3_data: bytes, folder: str, track: int) -> str:
     with open(path, "wb") as f:
         f.write(mp3_data)
     return path
+
+
+_SOUNDS_EVENTS_KEY = r"AppEvents\Schemes\Apps\.Default"
+
+
+@contextlib.contextmanager
+def muted_system_sounds(active: bool):
+    """Silenzia temporaneamente i suoni di sistema di Windows.
+
+    Se `active`, svuota il valore `.Current` di ogni evento sonoro di
+    Windows (notifiche, beep di collegamento USB, UAC, errori, ecc.):
+    politicamente è lo schema "Nessun suono" del Pannello di controllo,
+    ma limitato alla durata della registrazione, con ripristino
+    automatico dei valori originali allo STOP. Tocca solo HKCU.
+    """
+    if not active or sys.platform != "win32":
+        yield
+        return
+    import winreg
+
+    backup: dict[str, tuple[str, int]] = {}  # evento -> (valore, tipo)
+    muted = 0
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _SOUNDS_EVENTS_KEY) as root:
+            events, i = [], 0
+            while True:
+                try:
+                    events.append(winreg.EnumKey(root, i))
+                except OSError:
+                    break
+                i += 1
+        for event in events:
+            current = _SOUNDS_EVENTS_KEY + "\\" + event + r"\.Current"
+            try:
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, current) as key:
+                    value, vtype = winreg.QueryValueEx(key, None)
+                #Evento già senza suono: niente da backuppare.
+                if value == "":
+                    continue
+            except OSError:
+                continue
+            backup[event] = (value, vtype)
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, current) as key:
+                winreg.SetValueEx(key, None, 0, winreg.REG_SZ, "")
+            muted += 1
+        if muted:
+            print(f"  Suoni di sistema: {muted} eventi di Windows "
+                  f"disattivati per la registrazione (ripristino allo STOP)")
+    except Exception as e:
+        print(f"  Avviso: impossibile disattivare i suoni di sistema ({e})")
+
+    try:
+        yield
+    finally:
+        restored = 0
+        for event, (value, vtype) in backup.items():
+            try:
+                current = _SOUNDS_EVENTS_KEY + "\\" + event + r"\.Current"
+                with winreg.CreateKey(winreg.HKEY_CURRENT_USER, current) as key:
+                    winreg.SetValueEx(key, None, 0, vtype, value)
+                restored += 1
+            except OSError:
+                pass
+        if restored:
+            print(f"  Suoni di sistema ripristinati ({restored} eventi)")
 
 
 def record_tracks(output_dir: str, device_index: int | None,
@@ -335,6 +401,10 @@ def main() -> None:
     parser.add_argument("-d", "--output-dir", metavar="CARTELLA",
                         help="cartella delle tracce per --silence "
                              "(predefinita: pausarec_<data>)")
+    parser.add_argument("--mute-system", action="store_true",
+                        help="disattiva i suoni di sistema di Windows "
+                             "(notifiche, beep USB, UAC, ecc.) durante la "
+                             "registrazione e li ripristina allo stop")
     parser.add_argument("--list", action="store_true",
                         help="elenca le sorgenti audio disponibili ed esce")
     args = parser.parse_args()
@@ -352,9 +422,10 @@ def main() -> None:
             print("Nota: -o/--output è ignorato in modalità --silence; "
                   "le tracce sono salvate come \"traccia N.mp3\".")
         try:
-            record_tracks(output_dir, args.device, args.samplerate, args.bitrate,
-                          args.channels, args.duration, args.silence,
-                          args.threshold)
+            with muted_system_sounds(args.mute_system):
+                record_tracks(output_dir, args.device, args.samplerate,
+                              args.bitrate, args.channels, args.duration,
+                              args.silence, args.threshold)
         except Exception as e:
             sys.exit(f"Errore: {e}")
         return
@@ -363,8 +434,9 @@ def main() -> None:
         datetime.datetime.now().strftime("%Y%m%d_%H%M%S") + ".mp3"
 
     try:
-        record(output, args.device, args.samplerate, args.bitrate,
-               args.channels, args.duration)
+        with muted_system_sounds(args.mute_system):
+            record(output, args.device, args.samplerate, args.bitrate,
+                   args.channels, args.duration)
     except Exception as e:
         sys.exit(f"Errore: {e}")
 
