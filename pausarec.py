@@ -20,7 +20,9 @@ Ferma la registrazione con Ctrl+C.
 import argparse
 import datetime
 import os
+import re
 import sys
+import warnings
 
 import numpy as np
 import soundcard as sc
@@ -172,17 +174,27 @@ def record_tracks(output_dir: str, device_index: int | None,
     tail_frames_keep = int(min(silence, 1.0) * samplerate)  # coda breve a fine traccia
 
     encoder = make_encoder(samplerate, bitrate, channels)
-    track = 1
+    # Riparte dal numero successivo a "traccia N.mp3" già presenti nella
+    # cartella: le registrazioni precedenti non vengono sovrascritte.
+    first_track = max(
+        (int(m.group(1))
+         for name in os.listdir(output_dir)
+         if (m := re.fullmatch(r"traccia (\d+)\.mp3", name))),
+        default=0) + 1
+    track = first_track
     track_open = False    # la traccia corrente contiene almeno un frammento di audio
     mp3_data = bytearray()
     pending_silence: list[np.ndarray] = []  # silenzio sospeso (gap interno da tenere)
     silence_frames = 0    # frame consecutivi di silenzio al momento corrente
     track_frames = 0      # frame audio (silenzio interno incluso) nella traccia
     total_frames = 0
+    saved = 0             # tracce salvate in questa sessione
     start = datetime.datetime.now()
 
-    print(f"\n◉ REC avviata... in attesa del primo audio (traccia 1)."
-          f" Ctrl+C per fermare e salvare l'ultima traccia.\n")
+    reprise = (f" (riprende da traccia {track}: i file precedenti "
+               f"non vengono toccati)" if first_track > 1 else "")
+    print(f"\n◉ REC avviata... in attesa del primo audio (traccia {track})."
+          f"{reprise} Ctrl+C per fermare e salvare l'ultima traccia.\n")
 
     try:
         with device.recorder(samplerate=samplerate, channels=channels) as rec:
@@ -218,6 +230,7 @@ def record_tracks(output_dir: str, device_index: int | None,
                             print(f"\r  ✔ Traccia {track} salvata "
                                   f"({tmins:02d}:{tsecs:02d}, {mb:.2f} MB) "
                                   f"-> {path}")
+                            saved += 1
                             track += 1
                             encoder = make_encoder(samplerate, bitrate, channels)
                             mp3_data = bytearray()
@@ -264,19 +277,30 @@ def record_tracks(output_dir: str, device_index: int | None,
             track_frames += buf.shape[0]
         mp3_data += encoder.flush()
         path = save_track(bytes(mp3_data), output_dir, track)
+        saved += 1
     else:
         # Nessuna traccia registrata: segnala solo il totale
         path = None
 
     mins, secs = divmod(int(total_frames / samplerate), 60)
-    saved = track if track_open else track - 1
-    print(f"\n\n■ STOP — nastro riavvolto, {saved} tracce salvate in \"{output_dir}\":")
+    if saved == 0:
+        print(f"\n\n■ STOP — nessuna traccia salvata: non è stato rilevato audio"
+              f" sopra la soglia in \"{output_dir}\".")
+    else:
+        print(f"\n\n■ STOP — nastro riavvolto, {saved} nuove tracce ({first_track}-{track if track_open else track - 1})"
+              f" salvate in \"{output_dir}\":")
     print(f"  Durata totale : {mins:02d}:{secs:02d}")
     if path:
         print(f"  Ultima traccia: {path}")
 
 
 def main() -> None:
+    # Il loopback WASAPI emette "data discontinuity in recording" quando
+    # Windows sospende l'engine di capture: tipicamente all'avvio dello
+    # stream e durante il silenzio (nessuna app suona). È un avviso
+    # innocuo che non comporta perdite d'ascolto reali nella pratica:
+    # lo silenziamo per non inquinare l'output a video.
+    warnings.filterwarnings("ignore", message="data discontinuity in recording")
     # Il terminale Windows di default usa una codepage non Unicode:
     # forzo UTF-8 (con fallback) per i simboli REC/STOP del banner.
     for stream in (sys.stdout, sys.stderr):

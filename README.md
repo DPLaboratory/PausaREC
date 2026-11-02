@@ -70,6 +70,7 @@ Comportamento del silenzio:
 - **Pausa breve (sotto `--silence` secondi) dentro una traccia** → tenuta: resta una pausa naturale del brano
 - **Chiusura traccia** → viene tenuta solo una coda di ~1 s, il resto del silenzio è scartato
 - Il device audio viene aperto **una sola volta** per tutta la sessione: nessun frammento audio va perso tra una traccia e l'altra
+- Se la cartella contiene già tracce da una sessione precedente, la numerazione **riparte dal numero successivo** (`traccia 7.mp3`, `traccia 8.mp3`, ...): i file esistenti non vengono mai sovrascritti
 
 Durante la registrazione la riga di stato mostra la traccia corrente e il silenzio accumulato:
 
@@ -154,6 +155,9 @@ Con `--silence SEC` si aggiunge la **modalità a tracce**: per ogni blocco viene
 
 **Il file MP3 è vuoto / non suona**
 → Su Windows 10/11 vai in **Impostazioni → Privacy e sicurezza → Microfono** e attiva la voce *"Consenti alle app desktop di accedere al microfono"* (il loopback è trattato come registrazione).
+
+**"SoundcardRuntimeWarning: data discontinuity in recording"**
+→ È un avviso della libreria **soundcard**, non un errore: il loopback WASAPI segnala un salto nei timestamp di capture che di solito si verifica all'avvio dello stream e durante il silenzio (quando nessuna app suona, Windows sospende momentaneamente l'engine di capture). La registrazione prosegue normalmente e i file salvati sono regolari; lo script silenzia da solo questo avviso per non inquinare l'output.
 
 **Non sto registrando la sorgente giusta**
 → Potresti avere più di un'uscita audio (es. "FxSound Audio Enhancer" *e* "Realtek"). Registra esattamente sul device su cui stai riproducendo: usa `--device N` con l'indice giusto di `--list`.
