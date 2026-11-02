@@ -22,7 +22,7 @@ Funziona su Windows tramite il **loopback WASAPI**: intercetta l'audio direttame
 ## Installazione
 
 ```bash
-cd C:\Develop\@Prj-Lab\AI-test\AudioRip
+cd C:\Develop\@Prj-Lab\PausaREC
 pip install -r requirements.txt
 ```
 
@@ -45,6 +45,40 @@ python pausarec.py
 - Avvia subito la registrazione dall'**uscita audio predefinita**.
 - La registrazione continua finché non premi **`Ctrl+C`**: a quel punto l'app finalizza il file MP3 e lo salva ("nastro riavvolto").
 - Se non viene specificato un nome, il file viene salvato come `pausarec_AAAAMMGG_HHMMSS.mp3` (con data e ora correnti).
+
+### Modalità a tracce: split automatico sul silenzio
+
+```bash
+python pausarec.py --silence 5
+```
+
+Questa è la vera magia del nastro: quando rileva **5 secondi consecutivi di silenzio** (colonna sonora ferma), chiude l'MP3 corrente e ne apre uno nuovo. I file vengono salvati in una cartella come `traccia 1.mp3`, `traccia 2.mp3`, `traccia 3.mp3`, ...
+
+Perfetto per registrare la radio, una playlist o una cassetta digitale e permettere di trovare le canzoni.
+
+```bash
+# Trasmissioni radio: dopo 10 s di silenzio → nuovo MP3
+python pausarec.py --silence 10 -d "Radio Europa FM" --duration 3600
+
+# Regola la soglia di silenzio (rumore di fondo alto → alza la soglia)
+python pausarec.py --silence 5 --threshold 0.01
+```
+
+Comportamento del silenzio:
+
+- **Prima del primo audio** → scartato: non vengono mai create tracce vuote
+- **Pausa breve (sotto `--silence` secondi) dentro una traccia** → tenuta: resta una pausa naturale del brano
+- **Chiusura traccia** → viene tenuta solo una coda di ~1 s, il resto del silenzio è scartato
+- Il device audio viene aperto **una sola volta** per tutta la sessione: nessun frammento audio va perso tra una traccia e l'altra
+
+Durante la registrazione la riga di stato mostra la traccia corrente e il silenzio accumulato:
+
+```
+● REC  ⏱ 03:41  |  traccia   4  |  silenzio  2.3/5 s
+  ✔ Traccia 4 salvata (03:35, 4.92 MB) -> Radio Europa FM\traccia 4.mp3
+```
+
+Combinabile con `--duration` (si ferma da solo dopo N secondi, salvando anche l'ultima traccia parziale).
 
 ### Elencare le sorgenti audio disponibili
 
@@ -72,6 +106,9 @@ Sorgenti audio (loopback) disponibili:
 | `--samplerate HZ` | Frequenza di campionamento | `48000` |
 | `--channels N` | `1` = mono, `2` = stereo | `2` |
 | `--duration SEC` | Ferma automaticamente la registrazione dopo N secondi | (nessun limite) |
+| `--silence SEC` | Modalità a tracce: dopo N secondi di silenzio chiude l'MP3 corrente e ne apre uno nuovo (`traccia 1.mp3`, `traccia 2.mp3`, ...), tutti salvati in una cartella | (disattivata) |
+| `--threshold AMP` | Soglia RMS di silenzio in modalità `--silence`, da `0.0` a `1.0` (0.005 ≈ -46 dB) | `0.005` |
+| `-d, --output-dir CARTELLA` | Cartella delle tracce in modalità `--silence` | `pausarec_<data>` |
 | `--list` | Elenca le sorgenti audio disponibili ed esce | — |
 | `-h, --help` | Aiuto con tutte le opzioni | — |
 
@@ -89,6 +126,9 @@ python pausarec.py --duration 60 --bitrate 320
 
 # Registra in 44,1 kHz (ideale per musica)
 python pausarec.py --samplerate 44100
+
+# Tracce automatiche: un nuovo MP3 dopo 5 s di silenzio, nella cartella "Mixtape"
+python pausarec.py --silence 5 -d Mixtape
 ```
 
 ---
@@ -99,6 +139,8 @@ python pausarec.py --samplerate 44100
 2. Legge blocchi di ~100 ms di audio in formato `float32` (`-1.0` … `1.0`) e li converte in **PCM int16**.
 3. Ogni blocco viene codificato in **MP3 al volo** (in memoria) con **lameenc**.
 4. Alla fine (con `Ctrl+C` o dopo `--duration` secondi) il flusso MP3 viene finalizzato e scritto su disco.
+
+Con `--silence SEC` si aggiunge la **modalità a tracce**: per ogni blocco viene calcolato l'RMS (media quadratica) dei campioni. Se resta sotto la soglia `--threshold` per SEC secondi consecutivi, la traccia corrente viene chiusa con `flush()` di lameenc, salvata come `traccia N.mp3` e ne parte una nuova con un encoder fresco — mentre il recorder loopback resta aperto e non perde un solo campione.
 
 ---
 
@@ -124,10 +166,11 @@ python pausarec.py --samplerate 44100
 ## Struttura del progetto
 
 ```
-AudioRip/
+PausaREC/
 ├── pausarec.py        # script principale
 ├── requirements.txt   # dipendenze Python
-└── README.md          # questo file
+├── Readme.md          # questo file
+└── pausarec_<data>/   # cartelle tracce create dalla modalità --silence
 ```
 
 ---
